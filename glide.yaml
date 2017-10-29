@@ -1,0 +1,29 @@
+package: open-buzz
+import:
+- package: github.com/gorilla/mux
+  version: ^1.5.0
+- package: github.com/PuerkitoBio/fetchbot
+  version: ^1.1.2
+- package: github.com/temoto/robotstxt-go
+- package: github.com/PuerkitoBio/goquery
+  version: ^1.1.0
+- package: github.com/andybalholm/cascadia
+- package: github.com/badoux/checkmail
+- package: github.com/jinzhu/gorm
+  version: ^1.0.0
+- package: github.com/facebookgo/inject
+- package: github.com/golang-plus/uuid
+  version: ^1.0.0
+- package: github.com/golang-plus/errors
+  version: ^1.0.0
+- package: github.com/mattn/go-sqlite3
+  version: ^1.3.0
+- package: github.com/lib/pq
+- package: github.com/weppos/publicsuffix-go
+  version: ^0.3.2
+- package: github.com/m1ome/leven
+- package: github.com/mvdan/xurls
+  version: ^1.1.0
+- package: github.com/jarcoal/httpmock
+- package: github.com/kennygrant/sanitize
+  version: ^1.2.3
