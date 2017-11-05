@@ -1,13 +1,13 @@
 package api_test
 
 import (
-	. "open-buzz/api"
-
+	. "github.com/arthurgustin/openbuzz/api"
 	. "github.com/onsi/ginkgo"
+
+	"github.com/arthurgustin/openbuzz/orm"
 	"github.com/gorilla/mux"
-	"net/http"
 	"github.com/jarcoal/httpmock"
-	"open-buzz/orm"
+	"net/http"
 )
 
 var (
@@ -43,8 +43,8 @@ var _ = Describe("Prospect", func() {
 		r.HandleFunc("/api/v1/prospects/list", handler.List).Methods(http.MethodGet)
 	})
 
-	Context("List", func(){
-		JustBeforeEach(func(){
+	Context("List", func() {
+		JustBeforeEach(func() {
 		})
 	})
 

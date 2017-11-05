@@ -1,160 +1,53 @@
 package orm
 
 import (
-	"github.com/jinzhu/gorm"
-	"github.com/golang-plus/uuid"
-	_ "github.com/jinzhu/gorm/dialects/postgres"
+	"errors"
 	"fmt"
-	"strings"
-	"github.com/bobesa/go-domain-util/domainutil"
-	"github.com/davecgh/go-spew/spew"
-	"open-buzz/shared"
+	"github.com/arthurgustin/openbuzz/shared"
+	"github.com/golang-plus/uuid"
+	"github.com/jinzhu/gorm"
+	_ "github.com/jinzhu/gorm/dialects/postgres"
 )
+
+var ErrfailedToConnectToDabase = errors.New("failed to connect database")
 
 type Client struct {
-	Db *gorm.DB
+	Db     *gorm.DB
 	Logger shared.LoggerInterface `inject:""`
+	Config *shared.AppConfig      `inject:""`
 }
 
-func NewClient() (*Client, error) {
-	db, err := initDatabase()
-	if err != nil {
-		return nil, err
-	}
-	return &Client{
-		Db: db,
-	}, nil
-}
-
-const (
-	host     = "localhost"
-	port     = 5432
-	user     = "postgres"
-	password = "postgres"
-	dbname   = "openbuzz"
-)
-func initDatabase() (*gorm.DB, error) {
+func (c *Client) Init() error {
 	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		host, port, user, password, dbname)
+		c.Config.PgHost, c.Config.PgPort, c.Config.PgUser, c.Config.PgPassword, c.Config.PgDbName)
+	c.Logger.Info("trying to connect to postgresql",
+		"host", c.Config.PgHost,
+		"port", fmt.Sprintf("%d", c.Config.PgPort),
+		"user", c.Config.PgUser,
+		"password", c.Config.PgPassword,
+		"database", c.Config.PgDbName)
 	db, err := gorm.Open("postgres", psqlInfo)
 	if err != nil {
-		panic("failed to connect database")
+		return ErrfailedToConnectToDabase
 	}
 	db.LogMode(false)
 	// Migrate the schema
 	db.AutoMigrate(&dbProspectInfo{})
 	db.AutoMigrate(&dbProspect{})
-	return db, err
+	c.Db = db
+	return err
 }
 
-func NewProspect(url string) *Prospect {
-	prospect := &Prospect{}
-	return prospect.SetUrl(url)
-}
-
-type Prospect struct {
-	ProspectId string
-	prospect dbProspect
-	infos []dbProspectInfo
-}
-
-type dbProspect struct {
-	gorm.Model
-	ProspectID string `gorm:"not null;unique"`
-	Url string `gorm:"not null"`
-	FirstName string
-	MiddleName string
-	LastName string
-}
-
-type dbProspectInfo struct {
-	gorm.Model
-	ProspectID string `gorm:"not null"`
-	Key string
-	Val string
-	Confidence float64 // [0 - 1]
-	ValidatedByUser bool
-}
-
-func (p *Prospect) SetIcon(targetUrl string) *Prospect {
-	return p.addInfo("icon", targetUrl, 1)
-}
-
-func (p *Prospect) SetUrl(targetUrl string) *Prospect {
-	p.prospect.Url = targetUrl
-	return p.addInfo("domain", targetUrl, 1)
-}
-
-func (p *Prospect) GetUrl() string {
-	return p.prospect.Url
-}
-
-func (p *Prospect) GetHost() string {
-	domain := domainutil.Domain(p.GetUrl())
-
-	// e.g for korben.info, returns korben
-	return strings.Split(domain, ".")[0]
-}
-
-// Don't forget to update this slice when a new social media is added
-var allSocialMedia = []string{"facebook", "twitter", "youtube", "google", "linkedin"}
-func (p *Prospect) SetSocial(name, url string, confidence float64) *Prospect {
-	switch name {
-	case "facebook":
-		return p.addInfo("facebook", url, confidence)
-	case "twitter":
-		return p.addInfo("twitter", url, confidence)
-	case "google":
-		return p.addInfo("google", url, confidence)
-	case "linkedin":
-		return p.addInfo("linkedin", url, confidence)
-	case "youtube":
-		return p.addInfo("youtube", url, confidence)
+func (c *Client) getInfoToIgnore(p *Prospect) []int {
+	toIgnore := make([]int, 0)
+	for i := 0; i < len(p.infos)-1; i++ {
+		for j := i + 1; j < len(p.infos); j++ {
+			if p.infos[i].Equal(p.infos[j]) {
+				toIgnore = append(toIgnore, i)
+			}
+		}
 	}
-	return p
-}
-
-func (p *Prospect) SetEmail(email string, confidence float64) *Prospect {
-	return p.addInfo("email", email, confidence)
-}
-
-func (p *Prospect) SetFirstName(firstName string) *Prospect {
-	p.prospect.FirstName = strings.ToLower(firstName)
-	return p
-}
-
-func (p *Prospect) GetFirstName() string {
-	return p.prospect.FirstName
-}
-
-
-func (p *Prospect) SetMiddleName(middleName string) *Prospect {
-	p.prospect.MiddleName = strings.ToLower(middleName)
-	return p
-}
-
-func (p *Prospect) GetMiddleName() string {
-	return p.prospect.MiddleName
-}
-
-func (p *Prospect) SetLastName(lastName string) *Prospect {
-	p.prospect.LastName = strings.ToLower(lastName)
-	return p
-}
-
-func (p *Prospect) GetLastName() string {
-	return p.prospect.LastName
-}
-
-func (p *Prospect) addInfo(key, val string, confidence float64) *Prospect {
-	p.infos = append(p.infos, dbProspectInfo{
-		ProspectID: p.prospect.ProspectID,
-		Key: key,
-		Val: val,
-		ValidatedByUser: false,
-		Confidence: confidence,
-	})
-	return p
+	return toIgnore
 }
 
 func (c *Client) Save(p *Prospect) error {
@@ -164,20 +57,32 @@ func (c *Client) Save(p *Prospect) error {
 		return err
 	}
 
-	for _, info := range p.infos {
-		transaction := c.Db.Begin()
-		info.ProspectID = p.prospect.ProspectID
-		if c.infoExist(info) {
+	duplicatedInfos := c.getInfoToIgnore(p)
+
+	for i, info := range p.infos {
+		if contains(duplicatedInfos, i) {
 			continue
 		}
-		if err := transaction.Create(&info).Error; err != nil {
-			transaction.Rollback()
+		info.ProspectID = p.prospect.ProspectID
+		if c.infoExist(info) {
+			c.Logger.Info("prospect information already exists", "key", info.Key, "val", info.Val)
+			continue
+		}
+		if err := c.Db.Create(&info).Error; err != nil {
 			return err
 		}
-		transaction.Commit()
 	}
 
 	return nil
+}
+
+func contains(l []int, v int) bool {
+	for _, li := range l {
+		if li == v {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) List() (list []Prospect, err error) {
@@ -194,79 +99,64 @@ func (c *Client) List() (list []Prospect, err error) {
 		if err = c.Db.Model(&dbProspectInfo{}).
 			Where("prospect_id = ?", prospect.ProspectID).
 			Find(&prospectsInfo).Error; err != nil {
-				c.Logger.Warn(err.Error())
-				return
+			c.Logger.Warn(err.Error())
+			return
 		}
 
 		list = append(list, Prospect{
 			ProspectId: prospect.ProspectID,
-			prospect: prospect,
-			infos: prospectsInfo,
+			prospect:   prospect,
+			infos:      prospectsInfo,
 		})
 	}
 	return
-}
-
-type Email struct {
-	Email string
-	Confidence float64
-	ValidatedByUser bool
 }
 
 func (c *Client) GetEmails(prospectId string) (emails []Email, err error) {
 	infos := []dbProspectInfo{}
 
 	if err = c.Db.Model(&dbProspectInfo{}).
-	Where("prospect_id = ? AND key = ?", prospectId, "email").
-	Find(&infos).Error; err != nil {
-		c.Logger.Warn(err.Error())
-		return
-	}
-
-	for _, info := range infos {
-		emails = append(emails, Email{
-			Email: info.Val,
-			Confidence: info.Confidence,
-			ValidatedByUser: info.ValidatedByUser,
-		})
-	}
-	return
-}
-
-type SocialMedia struct {
-	Name string
-	Url string
-	Confidence float64
-	ValidatedByUser bool
-}
-
-func (c *Client) GetSocialMedia(prospectId string) (socialMedias []SocialMedia, err error) {
-	infos := []dbProspectInfo{}
-
-	if err = c.Db.Model(&dbProspectInfo{}).
-		Where("prospect_id = ? AND key IN (?)", prospectId, allSocialMedia).
+		Where("prospect_id = ? AND key = ?", prospectId, "email").
 		Find(&infos).Error; err != nil {
 		c.Logger.Warn(err.Error())
 		return
 	}
 
 	for _, info := range infos {
-		socialMedias = append(socialMedias, SocialMedia{
-			Name: info.Key,
-			Url: info.Val,
-			Confidence: info.Confidence,
+		emails = append(emails, Email{
+			Email:           info.Val,
+			Confidence:      info.Confidence,
 			ValidatedByUser: info.ValidatedByUser,
 		})
 	}
 	return
 }
 
-type Assets struct {
-	Icons []Icon
-}
+func (c *Client) GetSocialMedia(prospectId string) (socialMedias []SocialMedia, err error) {
 
-type Icon struct {
-	Link string
+	for _, socialMedia := range allSocialMedia {
+		infos := []dbProspectInfo{}
+
+		if err = c.Db.Model(&dbProspectInfo{}).
+			Where("prospect_id = ? AND key = ?", prospectId, socialMedia).
+			Order("confidence desc").
+			Limit(1).
+			Find(&infos).Error; err != nil {
+			c.Logger.Warn(err.Error())
+			return
+		}
+
+		for _, info := range infos {
+			socialMedias = append(socialMedias, SocialMedia{
+				Name:            info.Key,
+				Url:             info.Val,
+				Confidence:      info.Confidence,
+				ValidatedByUser: info.ValidatedByUser,
+			})
+		}
+	}
+
+	return
 }
 
 func (c *Client) GetAssets(prospectId string) (assets Assets, err error) {
@@ -287,34 +177,60 @@ func (c *Client) GetAssets(prospectId string) (assets Assets, err error) {
 	return
 }
 
-func (c *Client) saveDbProspect(p dbProspect) error {
-	transaction := c.Db.Begin()
+func (c *Client) GetTags(prospectId string) (tags []Tag, err error) {
+	infos := []dbProspectInfo{}
 
+	if err = c.Db.Model(&dbProspectInfo{}).
+		Where("prospect_id = ? AND key = ?", prospectId, "tag").
+		Find(&infos).Error; err != nil {
+		c.Logger.Warn(err.Error())
+		return
+	}
+
+	for _, info := range infos {
+		tags = append(tags, Tag(info.Val))
+	}
+	return
+}
+
+func (c *Client) GetDescription(prospectId string) (desc string, err error) {
+	infos := []dbProspectInfo{}
+
+	if err = c.Db.Model(&dbProspectInfo{}).
+		Where("prospect_id = ? AND key = ?", prospectId, "description").
+		Limit(1).
+		Find(&infos).Error; err != nil {
+		c.Logger.Warn(err.Error())
+		return
+	}
+
+	for _, info := range infos {
+		return info.Val, nil
+	}
+	return
+}
+
+func (c *Client) saveDbProspect(p dbProspect) error {
 	pro := dbProspect{}
-	if notFound := transaction.Model(&dbProspect{}).
-	Where("url = ?", p.Url).Scan(&pro).RecordNotFound(); !notFound {
-		transaction.Rollback()
-		fmt.Println("already exists")
+	if notFound := c.Db.Model(&dbProspect{}).
+		Where("url = ?", p.Url).Scan(&pro).RecordNotFound(); !notFound {
 		return nil
 	}
 
-	if err := transaction.Model(&dbProspect{}).Create(&p).Error; err != nil {
-		transaction.Rollback()
+	if err := c.Db.Model(&dbProspect{}).Create(&p).Error; err != nil {
 		return err
 	}
-	transaction.Commit()
 	return nil
 }
 
 func (c *Client) infoExist(info dbProspectInfo) bool {
 	var count int
 	if err := c.Db.Model(&dbProspectInfo{}).
-	Where("key = ? AND val = ? AND prospect_id = ?", info.Key, info.Val, info.ProspectID).
-	Count(&count).Error; err != nil {
+		Where("key = ? AND val = ? AND prospect_id = ?", info.Key, info.Val, info.ProspectID).
+		Count(&count).Error; err != nil {
 		panic(err)
 	}
 	if count > 0 {
-		fmt.Println(fmt.Sprintf("prospect information already exists: %s=%s", info.Key, info.Val))
 		return true
 	}
 	return false
@@ -323,9 +239,7 @@ func (c *Client) infoExist(info dbProspectInfo) bool {
 func (c *Client) getOrCreateProspectId(url string) string {
 	var prospect dbProspect
 	c.Db.Model(&dbProspect{}).
-	Where("url = ?", url).First(&prospect)
-
-	spew.Dump(prospect)
+		Where("url = ?", url).First(&prospect)
 
 	if prospect.Url != "" {
 		return prospect.ProspectID

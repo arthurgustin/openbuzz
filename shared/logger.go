@@ -3,7 +3,7 @@ package shared
 import (
 	"github.com/sirupsen/logrus"
 	"os"
-	"fmt"
+	//"gopkg.in/natefinch/lumberjack.v2"
 )
 
 type LoggerInterface interface {
@@ -20,7 +20,15 @@ func NewLogger() *Logger {
 	log := logrus.New()
 	log.Out = os.Stdout
 	log.Formatter = &logrus.JSONFormatter{}
-	log.Level = logrus.InfoLevel
+	log.SetLevel(logrus.InfoLevel)
+
+	/*log.Out = &lumberjack.Logger{
+		Filename:   "buzz.log",
+		MaxSize:    250, // megabytes
+		MaxBackups: 2,
+		MaxAge:     28, //days
+		Compress:   true, // disabled by default
+	}*/
 
 	return &Logger{
 		logger: log,
@@ -28,26 +36,21 @@ func NewLogger() *Logger {
 }
 
 func (l *Logger) Info(message string, fields ...string) {
-	//l.getEntry(fields).Info(message)
-	fmt.Println(message)
+	l.getEntry(fields).Info(message)
 }
 
 func (l *Logger) Warn(message string, fields ...string) {
-	//l.getEntry(fields).Info(message)
-	fmt.Println(message)
+	l.getEntry(fields).Warn(message)
 }
 
 func (l *Logger) Fatal(message string, fields ...string) {
-	//l.getEntry(fields).Info(message)
-	fmt.Println(message)
+	l.getEntry(fields).Fatal(message)
 }
 
 func (l *Logger) getEntry(fields []string) *logrus.Entry {
-	e := &logrus.Entry{}
-	for i:=0; i<len(fields)-1; i++ {
-		e = l.logger.WithFields(logrus.Fields{
-			fields[i]: fields[i+1],
-		})
+	e := logrus.NewEntry(l.logger)
+	for i := 0; i < len(fields)-1; i += 2 {
+		e = e.WithField(fields[i], fields[i+1])
 	}
-	return e.WithField("foo", "bar")
+	return e
 }

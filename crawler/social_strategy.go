@@ -15,7 +15,8 @@ func GetAllSocialStrategies() []SocialStrategy {
 	}
 }
 
-type TwitterStrategy struct {}
+type TwitterStrategy struct{}
+
 func (s *TwitterStrategy) GetUrlPrefix() string {
 	return "twitter.com/"
 }
@@ -24,7 +25,8 @@ func (s *TwitterStrategy) GetName() string {
 	return "twitter"
 }
 
-type FacebookStrategy struct {}
+type FacebookStrategy struct{}
+
 func (s *FacebookStrategy) GetUrlPrefix() string {
 	return "facebook.com/"
 }
@@ -33,7 +35,8 @@ func (s *FacebookStrategy) GetName() string {
 	return "facebook"
 }
 
-type YoutubeStrategy struct {}
+type YoutubeStrategy struct{}
+
 func (s *YoutubeStrategy) GetUrlPrefix() string {
 	return "youtube.com/"
 }
@@ -42,7 +45,8 @@ func (s *YoutubeStrategy) GetName() string {
 	return "youtube"
 }
 
-type LinkedinStrategy struct {}
+type LinkedinStrategy struct{}
+
 func (s *LinkedinStrategy) GetUrlPrefix() string {
 	return "linkedin.com/in/"
 }
@@ -51,7 +55,8 @@ func (s *LinkedinStrategy) GetName() string {
 	return "linkedin"
 }
 
-type LinkedinCompanyStrategy struct {}
+type LinkedinCompanyStrategy struct{}
+
 func (s *LinkedinCompanyStrategy) GetUrlPrefix() string {
 	return "linkedin.com/company/"
 }

@@ -1,25 +1,32 @@
 package crawler
 
 import (
-	"fmt"
-	"net/url"
 	"net/http"
+	"net/url"
 
-	"open-buzz/orm"
 	"github.com/PuerkitoBio/fetchbot"
-	"open-buzz/shared"
+	"github.com/arthurgustin/openbuzz/orm"
+	"github.com/arthurgustin/openbuzz/shared"
+	"github.com/pkg/errors"
+)
+
+var (
+	ErrTargetUrlEmpty = errors.New("targetUrl cannot be empty")
 )
 
 type Crawler struct {
-	DbClient *orm.Client
-	*EmailFinder `inject:""`
+	DbClient    *orm.Client            `inject:""`
+	EmailFinder *EmailFinder           `inject:""`
+	Logger      shared.LoggerInterface `inject:""`
+	Fetcher     *Fetcher               `inject:""`
+	Config      *shared.AppConfig      `inject:""`
 }
 
 type CrawlResponse struct {
 	SocialNetworks struct {
-		Google []string `json:"google"`
-		Youtube []string `json:"youtube"`
-		Twitter []string `json:"twitter"`
+		Google   []string `json:"google"`
+		Youtube  []string `json:"youtube"`
+		Twitter  []string `json:"twitter"`
 		Facebook []string `json:"facebook"`
 	} `json:"socialNetworks"`
 	Email []string `json:"email"`
@@ -30,6 +37,10 @@ type CrawlInputInformations struct {
 }
 
 func (c *Crawler) CrawlWebsite(input CrawlInputInformations) (CrawlResponse, error) {
+	if input.TargetUrl == "" {
+		return CrawlResponse{}, ErrTargetUrlEmpty
+	}
+
 	prospect := orm.NewProspect(input.TargetUrl).SetFirstName(input.FirstName).SetMiddleName(input.MiddleName).SetLastName(input.LastName)
 
 	responseHandler := &ResponseHandler{
@@ -38,19 +49,19 @@ func (c *Crawler) CrawlWebsite(input CrawlInputInformations) (CrawlResponse, err
 			input.TargetUrl: true,
 		},
 		socialStrategies: GetAllSocialStrategies(),
-		Logger: shared.NewLogger(),
+		Logger:           shared.NewLogger(),
 	}
 
 	mux := c.NewMux(responseHandler)
 
-	f := NewFetch(mux)
+	f := NewFetch(mux, c.Logger)
 	f.Fetch(input.TargetUrl)
 
 	emails, err := c.EmailFinder.Find(*prospect)
 	if err != nil {
 		switch err {
 		case ErrAllPolicyActivated:
-			fmt.Println(ErrAllPolicyActivated)
+			c.Logger.Warn(ErrAllPolicyActivated.Error())
 		}
 	}
 	for _, email := range emails {
@@ -70,7 +81,7 @@ func (c *Crawler) NewMux(responseHandler *ResponseHandler) *fetchbot.Mux {
 
 	// Handle all errors the same
 	mux.HandleErrors(fetchbot.HandlerFunc(func(ctx *fetchbot.Context, res *http.Response, err error) {
-		fmt.Printf("[ERR] %s %s - %s\n", ctx.Cmd.Method(), ctx.Cmd.URL(), err)
+		c.Logger.Warn(err.Error(), "method", ctx.Cmd.Method(), "url", ctx.Cmd.URL().String())
 	}))
 
 	// Handle GET requests for html responses, to parse the body and enqueue all links as HEAD

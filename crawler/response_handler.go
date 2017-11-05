@@ -1,26 +1,27 @@
 package crawler
 
 import (
-	"open-buzz/orm"
-	"github.com/PuerkitoBio/fetchbot"
-	"github.com/PuerkitoBio/goquery"
-	"fmt"
 	"net/http"
 	"strings"
-	"github.com/badoux/checkmail"
 	"sync"
+
+	"github.com/PuerkitoBio/fetchbot"
+	"github.com/PuerkitoBio/goquery"
+	"github.com/arthurgustin/openbuzz/orm"
+	"github.com/arthurgustin/openbuzz/shared"
+	"github.com/badoux/checkmail"
 	"github.com/m1ome/leven"
 	"github.com/mvdan/xurls"
-	"open-buzz/shared"
 )
 
 type ResponseHandler struct {
-	prospect *orm.Prospect
-	fetchbotHandler fetchbot.HandlerFunc
-	mu sync.Mutex
-	alreadyVisited map[string]bool
+	prospect         *orm.Prospect
+	fetchbotHandler  fetchbot.HandlerFunc
+	mu               sync.Mutex
+	alreadyVisited   map[string]bool
 	socialStrategies []SocialStrategy
-	Logger shared.LoggerInterface `inject:""`
+	Logger           shared.LoggerInterface `inject:""`
+	Config           *shared.AppConfig      `inject:""`
 }
 
 func (h *ResponseHandler) headHandler() fetchbot.HandlerFunc {
@@ -45,8 +46,18 @@ func (h *ResponseHandler) getHandler() fetchbot.HandlerFunc {
 }
 
 func (h *ResponseHandler) enqueueLinks(ctx *fetchbot.Context, doc *goquery.Document) {
-	h.mu.Lock()
-	doc.Find("a[href]").Each(func(i int, s *goquery.Selection) {
+	h.parseHead(ctx, doc)
+	h.parseBody(ctx, doc)
+}
+
+func (h *ResponseHandler) parseBody(ctx *fetchbot.Context, doc *goquery.Document) {
+	doc.Find("body").Each(func(i int, s *goquery.Selection) {
+		h.parseHrefBody(ctx, s)
+	})
+}
+
+func (h *ResponseHandler) parseHrefBody(ctx *fetchbot.Context, s *goquery.Selection) {
+	s.Find("a[href]").Each(func(i int, s *goquery.Selection) {
 		val, _ := s.Attr("href")
 		u, err := ctx.Cmd.URL().Parse(val)
 		if err != nil {
@@ -58,52 +69,60 @@ func (h *ResponseHandler) enqueueLinks(ctx *fetchbot.Context, doc *goquery.Docum
 		if url == "" {
 			return
 		}
-		host := u.Host
 
 		h.fillProspectInformations(url)
 
-		if strings.HasPrefix(h.prospect.GetUrl(), host) {
-			fmt.Println(u.RawQuery)
+		if strings.Contains(h.prospect.GetUrl(), u.Host) {
 			if !h.alreadyVisited[url] {
 				if _, err := ctx.Q.SendStringGet(url); err != nil {
 					h.Logger.Warn(err.Error(), "url", url)
 				} else {
+					h.Logger.Info("sent string get", "url", url)
+					h.mu.Lock()
 					h.alreadyVisited[url] = true
+					h.mu.Unlock()
 				}
 			}
 		}
 	})
+}
+
+func (h *ResponseHandler) parseHead(ctx *fetchbot.Context, doc *goquery.Document) {
 	doc.Find("head").Each(func(i int, s *goquery.Selection) {
-		doc.Find("link[href]").Each(func (j int, s *goquery.Selection){
-			val, _ := s.Attr("href")
-			u, err := ctx.Cmd.URL().Parse(val)
-			if err != nil {
-				h.Logger.Warn(err.Error())
-				return
-			}
-			link := u.String()
+		s.Find("link[href]").Each(func(j int, s *goquery.Selection) {
+			link, _ := s.Attr("href")
+
+			link = h.decodeURIComponent(link)
 
 			if h.isLinkAnImage(link) {
-				h.Logger.Info(link)
+				h.Logger.Info("FOUND ICON: " + link)
 				h.prospect.SetIcon(link)
 			}
 		})
-		doc.Find(`meta[name="keywords"]`).Each(func (j int, s *goquery.Selection){
+		s.Find(`meta[name="keywords"]`).Each(func(j int, s *goquery.Selection) {
 			val, _ := s.Attr("content")
-			u, err := ctx.Cmd.URL().Parse(val)
-			if err != nil {
-				h.Logger.Warn(err.Error())
-				return
-			}
-			content := u.String()
-			tags := strings.Split(content, ",")
-			for _, t := range tags {
-				h.Logger.Info(strings.Trim(t, " "))
-			}
+			val = h.decodeURIComponent(val)
 
+			tags := strings.Split(val, ",")
+			for _, tag := range tags {
+				tag = strings.Trim(tag, " ")
+				h.Logger.Info("FOUND TAG: " + tag)
+				h.prospect.SetTag(tag)
+			}
+		})
+		s.Find(`meta[name="description"]`).Each(func(j int, s *goquery.Selection) {
+			content, _ := s.Attr("content")
+			content = h.decodeURIComponent(content)
+			h.Logger.Info("FOUND DESCRIPTION: " + content)
+
+			h.prospect.SetDescription(content)
 		})
 	})
-	h.mu.Unlock()
+}
+
+func (h *ResponseHandler) decodeURIComponent(str string) string {
+	replacer := strings.NewReplacer("%20", " ", "%21", "!", "%27", "'", "%28", "(", "%29", ")", "%2A", "*")
+	return replacer.Replace(str)
 }
 
 func (h *ResponseHandler) isLinkAnImage(link string) bool {
@@ -134,13 +153,16 @@ func (h *ResponseHandler) fillProspectInformations(targetUrl string) {
 
 	for _, socialStrategy := range h.socialStrategies {
 		confidence := 0.
+		if !strings.Contains(targetUrl, socialStrategy.GetUrlPrefix()) {
+			continue
+		}
 		s := strings.Split(targetUrl, socialStrategy.GetUrlPrefix())
 		if len(s) > 1 {
-			confidence = h.normalizedLevenstein(s[1], h.prospect.GetHost())
+			confidence = h.normalizedLevenstein(s[1], h.prospect.GetDomainNameWithoutExtension())
 		}
-		if confidence > 0.1 {
-			h.prospect.SetSocial(socialStrategy.GetName(), targetUrl, confidence)
-		}
+		//if confidence > 0 {
+		h.prospect.SetSocial(socialStrategy.GetName(), targetUrl, confidence)
+		//}
 	}
 
 	if strings.Contains(targetUrl, "@") {

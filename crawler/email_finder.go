@@ -1,15 +1,17 @@
 package crawler
 
 import (
-	"fmt"
+	"github.com/arthurgustin/openbuzz/orm"
+	"github.com/arthurgustin/openbuzz/shared"
 	"github.com/badoux/checkmail"
-	"strings"
-	"open-buzz/orm"
 	"github.com/bobesa/go-domain-util/domainutil"
 	"github.com/pkg/errors"
+	"strings"
 )
 
 type EmailFinder struct {
+	Logger shared.LoggerInterface `inject:""`
+	Config *shared.AppConfig      `inject:""`
 }
 
 var (
@@ -17,13 +19,22 @@ var (
 )
 
 func (f *EmailFinder) Find(prospect orm.Prospect) ([]Mail, error) {
-	if f.isAllPolicyActivated(prospect) {
+	allPolicyActivated, err := f.isAllPolicyActivated(prospect)
+	if err != nil {
+		f.Logger.Info(err.Error())
+	}
+	if allPolicyActivated {
+		f.Logger.Warn(ErrAllPolicyActivated.Error(), "domain", domainutil.Domain(prospect.GetUrl()))
 		return []Mail{}, ErrAllPolicyActivated
 	}
 
 	mails := []Mail{}
 	for _, mail := range f.generatePossibleMails(prospect) {
-		if mail.isReachable() {
+		isReachable, err := mail.isReachable()
+		if err != nil {
+			f.Logger.Info("not reachable", "email", mail.email, "err", err.Error())
+		}
+		if isReachable {
 			mails = append(mails, mail)
 		}
 	}
@@ -31,7 +42,7 @@ func (f *EmailFinder) Find(prospect orm.Prospect) ([]Mail, error) {
 	return mails, nil
 }
 
-func (f *EmailFinder) isAllPolicyActivated(prospect orm.Prospect) bool {
+func (f *EmailFinder) isAllPolicyActivated(prospect orm.Prospect) (bool, error) {
 	m := Mail{
 		email: "all_policy_activated@" + domainutil.Domain(prospect.GetUrl()),
 	}
@@ -69,53 +80,53 @@ func (f *EmailFinder) getMailSuffix(prospect orm.Prospect) []string {
 
 var (
 	permutations = []string{
-	"{fn}",
-	"{ln}",
-	"{fn}{ln}",
-	"{fn}.{ln}",
-	"{fi}{ln}",
-	"{fi}.{ln}",
-	"{fn}{li}",
-	"{fn}.{li}",
-	"{fi}{li}",
-	"{fi}.{li}",
-	"{ln}{fn}",
-	"{ln}.{fn}",
-	"{ln}{fi}",
-	"{ln}.{fi}",
-	"{li}{fn}",
-	"{li}.{fn}",
-	"{li}{fi}",
-	"{li}.{fi}",
-	"{fi}{mi}{ln}",
-	"{fi}{mi}.{ln}",
-	"{fn}{mi}{ln}",
-	"{fn}.{mi}.{ln}",
-	"{fn}{mn}{ln}",
-	"{fn}.{mn}.{ln}",
-	"{fn}-{ln}",
-	"{fi}-{ln}",
-	"{fn}-{li}",
-	"{fi}-{li}",
-	"{ln}-{fn}",
-	"{ln}-{fi}",
-	"{li}-{fn}",
-	"{li}-{fi}",
-	"{fi}{mi}-{ln}",
-	"{fn}-{mi}-{ln}",
-	"{fn}-{mn}-{ln}",
-	"{fn}_{ln}",
-	"{fi}_{ln}",
-	"{fn}_{li}",
-	"{fi}_{li}",
-	"{ln}_{fn}",
-	"{ln}_{fi}",
-	"{li}_{fn}",
-	"{li}_{fi}",
-	"{fi}{mi}_{ln}",
-	"{fn}_{mi}_{ln}",
-	"{fn}_{mn}_{ln}",
-}
+		"{fn}",
+		"{ln}",
+		"{fn}{ln}",
+		"{fn}.{ln}",
+		"{fi}{ln}",
+		"{fi}.{ln}",
+		"{fn}{li}",
+		"{fn}.{li}",
+		"{fi}{li}",
+		"{fi}.{li}",
+		"{ln}{fn}",
+		"{ln}.{fn}",
+		"{ln}{fi}",
+		"{ln}.{fi}",
+		"{li}{fn}",
+		"{li}.{fn}",
+		"{li}{fi}",
+		"{li}.{fi}",
+		"{fi}{mi}{ln}",
+		"{fi}{mi}.{ln}",
+		"{fn}{mi}{ln}",
+		"{fn}.{mi}.{ln}",
+		"{fn}{mn}{ln}",
+		"{fn}.{mn}.{ln}",
+		"{fn}-{ln}",
+		"{fi}-{ln}",
+		"{fn}-{li}",
+		"{fi}-{li}",
+		"{ln}-{fn}",
+		"{ln}-{fi}",
+		"{li}-{fn}",
+		"{li}-{fi}",
+		"{fi}{mi}-{ln}",
+		"{fn}-{mi}-{ln}",
+		"{fn}-{mn}-{ln}",
+		"{fn}_{ln}",
+		"{fi}_{ln}",
+		"{fn}_{li}",
+		"{fi}_{li}",
+		"{ln}_{fn}",
+		"{ln}_{fi}",
+		"{li}_{fn}",
+		"{li}_{fi}",
+		"{fi}{mi}_{ln}",
+		"{fn}_{mi}_{ln}",
+		"{fn}_{mn}_{ln}",
+	}
 )
 
 func (f *EmailFinder) getMailsPrefix(prospect orm.Prospect) []string {
@@ -169,13 +180,10 @@ type Mail struct {
 	email string
 }
 
-func (m *Mail) isReachable() bool {
-	fmt.Printf("testing " + m.email + "...")
+func (m *Mail) isReachable() (bool, error) {
 	err := checkmail.ValidateHost(m.email)
 	if smtpErr, ok := err.(checkmail.SmtpError); ok && err != nil {
-		fmt.Println("ko (Code: %s, Msg: %s)", smtpErr.Code(), smtpErr)
-		return false
+		return false, smtpErr.Err
 	}
-	fmt.Println("ok")
-	return true
+	return true, nil
 }
