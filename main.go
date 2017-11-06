@@ -7,7 +7,6 @@ import (
 	"github.com/arthurgustin/openbuzz/crawler"
 	"github.com/arthurgustin/openbuzz/orm"
 	"github.com/arthurgustin/openbuzz/shared"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/facebookgo/inject"
 	"github.com/gorilla/mux"
 	"github.com/kelseyhightower/envconfig"
@@ -29,8 +28,6 @@ func main() {
 	if err := envconfig.Process(configPrefix, appConfig); err != nil {
 		logger.Fatal(err.Error())
 	}
-
-	spew.Dump(appConfig)
 
 	_, err := singleinstance.CreateLockFile("buzz.lock")
 	if err != nil {

@@ -12,6 +12,7 @@ import (
 	"github.com/badoux/checkmail"
 	"github.com/m1ome/leven"
 	"github.com/mvdan/xurls"
+	"regexp"
 )
 
 type ResponseHandler struct {
@@ -53,7 +54,40 @@ func (h *ResponseHandler) enqueueLinks(ctx *fetchbot.Context, doc *goquery.Docum
 func (h *ResponseHandler) parseBody(ctx *fetchbot.Context, doc *goquery.Document) {
 	doc.Find("body").Each(func(i int, s *goquery.Selection) {
 		h.parseHrefBody(ctx, s)
+		h.findNames(ctx, s)
 	})
+}
+
+func (h *ResponseHandler) findNames(ctx *fetchbot.Context, s *goquery.Selection) {
+	h.Logger.Info("trying to find names in the html page")
+	htmlContent := h.standardizeSpaces(s.Text())
+
+	namePattern := `([A-Z]\w+)\s+([A-Z]\w+)`
+	nameReg := regexp.MustCompile(namePattern)
+	myNameIsFirstname := regexp.MustCompile(`my\s+name\s+is\s+` + namePattern)
+	iAm1 := regexp.MustCompile(`(?i)I\s+am\s+` + namePattern)
+	iAm2 := regexp.MustCompile(`(?i)I'm\s+` + namePattern)
+	iAm3 := regexp.MustCompile(`(?i)I’m\s+` + namePattern)
+	allRegexName := []*regexp.Regexp{myNameIsFirstname, iAm1, iAm2, iAm3}
+
+	for _, r := range allRegexName {
+		matches := r.FindAllString(htmlContent, -1)
+		for _, match := range matches {
+			name := nameReg.FindString(match)
+			if name != "" {
+				firstName := strings.Split(name, " ")[0]
+				lastName := strings.Split(name, " ")[1]
+				h.Logger.Info("found name", "firstName", firstName, "lastName", lastName)
+				h.prospect.SetFirstName(firstName)
+				h.prospect.SetLastName(lastName)
+			}
+		}
+	}
+
+}
+
+func (h *ResponseHandler) standardizeSpaces(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func (h *ResponseHandler) parseHrefBody(ctx *fetchbot.Context, s *goquery.Selection) {
@@ -65,26 +99,59 @@ func (h *ResponseHandler) parseHrefBody(ctx *fetchbot.Context, s *goquery.Select
 			return
 		}
 
+		if strings.HasPrefix(val, "mailto:") {
+			mail := strings.Split(val, "mailto:")[1]
+			if err := checkmail.ValidateFormat(mail); err == nil {
+				err := checkmail.ValidateHost(mail)
+				if smtpErr, ok := err.(checkmail.SmtpError); ok && err != nil {
+					h.Logger.Warn(smtpErr.Error(), "code", smtpErr.Code())
+				} else {
+					h.Logger.Info("Found valid mailto", "mail", mail)
+					h.prospect.SetEmail(mail, 1)
+				}
+			}
+			return
+		}
+
 		url := xurls.Relaxed.FindString(u.String())
 		if url == "" {
 			return
 		}
 
-		h.fillProspectInformations(url)
+		// Maybe it's a social media link
+		h.findSocialMediaInformations(url)
 
-		if strings.Contains(h.prospect.GetUrl(), u.Host) {
-			if !h.alreadyVisited[url] {
-				if _, err := ctx.Q.SendStringGet(url); err != nil {
-					h.Logger.Warn(err.Error(), "url", url)
-				} else {
-					h.Logger.Info("sent string get", "url", url)
-					h.mu.Lock()
-					h.alreadyVisited[url] = true
-					h.mu.Unlock()
-				}
-			}
+		// We only want to get first level pages, others are less relevant
+		if h.getUrlLevelNumber(url) > 1 {
+			return
 		}
+
+		// Don't care about other domains
+		if !strings.Contains(h.prospect.GetUrl(), u.Host) {
+			return
+		}
+
+		if h.alreadyVisited[url] {
+			return
+		}
+
+		_, err = ctx.Q.SendStringGet(url)
+		if err != nil {
+			h.Logger.Warn(err.Error(), "url", url)
+		}
+		h.mu.Lock()
+		h.alreadyVisited[url] = true
+		h.mu.Unlock()
 	})
+}
+
+func (h *ResponseHandler) getUrlLevelNumber(url string) int {
+	// http://foo.bar.com/a/b/
+	url = strings.Replace(url, "://", "", -1)
+	// httpfoo.bar.com/a/b/
+	url = strings.TrimSuffix(url, "/")
+	// httpfoo.bar.com/a/b
+	return strings.Count(url, "/") // 2
 }
 
 func (h *ResponseHandler) parseHead(ctx *fetchbot.Context, doc *goquery.Document) {
@@ -146,7 +213,7 @@ func (h *ResponseHandler) normalizedLevenstein(a, b string) float64 {
 	return 1. - (float64(d1) / float64(lenMax))
 }
 
-func (h *ResponseHandler) fillProspectInformations(targetUrl string) {
+func (h *ResponseHandler) findSocialMediaInformations(targetUrl string) {
 	if strings.Contains(targetUrl, "share") {
 		return
 	}
@@ -163,16 +230,5 @@ func (h *ResponseHandler) fillProspectInformations(targetUrl string) {
 		//if confidence > 0 {
 		h.prospect.SetSocial(socialStrategy.GetName(), targetUrl, confidence)
 		//}
-	}
-
-	if strings.Contains(targetUrl, "@") {
-		if err := checkmail.ValidateFormat(targetUrl); err == nil {
-			err := checkmail.ValidateHost(targetUrl)
-			if smtpErr, ok := err.(checkmail.SmtpError); ok && err != nil {
-				h.Logger.Warn(smtpErr.Error(), "code", smtpErr.Code())
-			} else {
-				h.prospect.SetEmail(targetUrl, 1)
-			}
-		}
 	}
 }

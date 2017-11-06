@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"fmt"
 	"github.com/PuerkitoBio/fetchbot"
 	"github.com/arthurgustin/openbuzz/shared"
 	"net/http"
@@ -12,8 +13,8 @@ func NewFetch(mux *fetchbot.Mux, logger shared.LoggerInterface) *Fetcher {
 
 	fetcher := &Fetcher{
 		fetcher:     fetchbot.New(h),
-		stopAfter:   time.Duration(50 * time.Second),
-		cancelAfter: time.Duration(50 * time.Second),
+		stopAfter:   time.Duration(120 * time.Second),
+		cancelAfter: time.Duration(120 * time.Second),
 		memStats:    time.Duration(0 * time.Second),
 		Logger:      logger,
 	}
@@ -25,7 +26,7 @@ func NewFetch(mux *fetchbot.Mux, logger shared.LoggerInterface) *Fetcher {
 func logHandler(wrapped fetchbot.Handler, logger shared.LoggerInterface) fetchbot.Handler {
 	return fetchbot.HandlerFunc(func(ctx *fetchbot.Context, res *http.Response, err error) {
 		if err == nil {
-			logger.Info("fetch", "code", string(res.StatusCode), "method", ctx.Cmd.URL().String(), "content-type", res.Header.Get("Content-Type"))
+			logger.Info("fetch", "code", fmt.Sprintf("%d", res.StatusCode), "method", ctx.Cmd.URL().String(), "content-type", res.Header.Get("Content-Type"))
 		}
 		wrapped.Handle(ctx, res, err)
 	})

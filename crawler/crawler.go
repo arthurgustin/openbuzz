@@ -49,7 +49,7 @@ func (c *Crawler) CrawlWebsite(input CrawlInputInformations) (CrawlResponse, err
 			input.TargetUrl: true,
 		},
 		socialStrategies: GetAllSocialStrategies(),
-		Logger:           shared.NewLogger(),
+		Logger:           c.Logger,
 	}
 
 	mux := c.NewMux(responseHandler)
@@ -65,7 +65,7 @@ func (c *Crawler) CrawlWebsite(input CrawlInputInformations) (CrawlResponse, err
 		}
 	}
 	for _, email := range emails {
-		prospect.SetEmail(email.email, 1.)
+		prospect.SetEmail(email.email, 0.5)
 	}
 
 	if err = c.DbClient.Save(prospect); err != nil {
