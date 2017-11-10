@@ -4,3 +4,4 @@ vendor/
 *.lock
 *~
 glide.lock
+*.log
