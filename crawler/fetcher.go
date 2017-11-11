@@ -13,8 +13,8 @@ func NewFetch(mux *fetchbot.Mux, logger shared.LoggerInterface) *Fetcher {
 
 	fetcher := &Fetcher{
 		fetcher:     fetchbot.New(h),
-		stopAfter:   time.Duration(120 * time.Second),
-		cancelAfter: time.Duration(120 * time.Second),
+		stopAfter:   time.Duration(15 * time.Second),
+		cancelAfter: time.Duration(15 * time.Second),
 		memStats:    time.Duration(0 * time.Second),
 		Logger:      logger,
 	}

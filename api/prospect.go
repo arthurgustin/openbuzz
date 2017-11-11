@@ -4,11 +4,13 @@ import (
 	"github.com/arthurgustin/openbuzz/orm"
 	"github.com/arthurgustin/openbuzz/shared"
 	"net/http"
+	"github.com/gorilla/mux"
 )
 
 type ProspectHandler struct {
 	Client interface {
 		List() ([]orm.Prospect, error)
+		Delete(prospectId string) (err error)
 		GetEmails(prospectId string) ([]orm.Email, error)
 		GetSocialMedia(prospectId string) (socialMedias []orm.SocialMedia, err error)
 		GetAssets(prospectId string) (orm.Assets, error)
@@ -54,6 +56,22 @@ type JsonTag string
 type Response struct {
 	Prospects []JsonProspect `json:"prospects"`
 	Error     bool           `json:"error"`
+}
+
+func (c *ProspectHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	prospectId := vars["prospectId"]
+	c.Logger.Info("delete", "prospectId", prospectId)
+
+	err := c.Client.Delete(prospectId)
+	if err != nil {
+		writeError(w, err.Error())
+		return
+	}
+
+	w.WriteHeader(200)
+
+	return
 }
 
 func (c *ProspectHandler) List(w http.ResponseWriter, r *http.Request) {

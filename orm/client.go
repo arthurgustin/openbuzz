@@ -9,7 +9,7 @@ import (
 	_ "github.com/jinzhu/gorm/dialects/postgres"
 )
 
-var ErrfailedToConnectToDabase = errors.New("failed to connect database")
+var ErrFailedToConnectToDabase = errors.New("failed to connect database")
 
 type Client struct {
 	Db     *gorm.DB
@@ -28,7 +28,7 @@ func (c *Client) Init() error {
 		"database", c.Config.PgDbName)
 	db, err := gorm.Open("postgres", psqlInfo)
 	if err != nil {
-		return ErrfailedToConnectToDabase
+		return ErrFailedToConnectToDabase
 	}
 	db.LogMode(false)
 	// Migrate the schema
@@ -83,6 +83,23 @@ func contains(l []int, v int) bool {
 		}
 	}
 	return false
+}
+
+func (c *Client) Delete(prospectId string) (err error) {
+	transaction := c.Db.Begin()
+	if err = transaction.Model(&dbProspect{}).Delete(&dbProspect{}, "prospect_id = ?", prospectId).Error; err != nil {
+		c.Logger.Warn(err.Error())
+		transaction.Rollback()
+		return
+	}
+
+	if err = transaction.Model(&dbProspectInfo{}).Delete(&dbProspect{}, "prospect_id = ?", prospectId).Error; err != nil {
+		c.Logger.Warn(err.Error())
+		transaction.Rollback()
+		return
+	}
+	transaction.Commit()
+	return
 }
 
 func (c *Client) List() (list []Prospect, err error) {
