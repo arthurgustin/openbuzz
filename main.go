@@ -52,7 +52,7 @@ func main() {
 	r.HandleFunc("/api/v1/crawl", crawlerHandler.CrawlWebsite).Methods(http.MethodPost)
 	r.HandleFunc("/api/v1/list", prospectorHandler.List).Methods(http.MethodGet)
 	r.HandleFunc("/api/v1/prospect/{prospectId}", prospectorHandler.Delete).Methods(http.MethodDelete)
-	handler := cors.Default().Handler(r)
+	handler := cors.AllowAll().Handler(r)
 
 	logger.Info("starting listening...", "port", fmt.Sprintf("%d", appConfig.Port))
 
