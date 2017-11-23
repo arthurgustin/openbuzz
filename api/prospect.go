@@ -3,8 +3,8 @@ package api
 import (
 	"github.com/arthurgustin/openbuzz/orm"
 	"github.com/arthurgustin/openbuzz/shared"
-	"net/http"
 	"github.com/gorilla/mux"
+	"net/http"
 )
 
 type ProspectHandler struct {

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/allan-simon/go-singleinstance"
 	"github.com/arthurgustin/openbuzz/api"
 	"github.com/arthurgustin/openbuzz/crawler"
 	"github.com/arthurgustin/openbuzz/orm"
@@ -27,12 +26,6 @@ func main() {
 
 	if err := envconfig.Process(configPrefix, appConfig); err != nil {
 		logger.Fatal(err.Error())
-	}
-
-	_, err := singleinstance.CreateLockFile("buzz.lock")
-	if err != nil {
-		logger.Fatal("an instance already exists")
-		return
 	}
 
 	crawlerHandler := &api.CrawlerHandler{}

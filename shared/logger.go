@@ -2,7 +2,6 @@ package shared
 
 import (
 	"github.com/sirupsen/logrus"
-	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 type LoggerInterface interface {
@@ -19,14 +18,6 @@ func NewLogger() *Logger {
 	log := logrus.New()
 	log.Formatter = &logrus.JSONFormatter{}
 	log.SetLevel(logrus.InfoLevel)
-
-	log.Out = &lumberjack.Logger{
-		Filename:   "buzz.log",
-		MaxSize:    50, // megabytes
-		MaxBackups: 2,
-		MaxAge:     28,   //days
-		Compress:   true, // disabled by default
-	}
 
 	return &Logger{
 		logger: log,

@@ -1,0 +1,67 @@
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: openbuzz
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        name: openbuzz
+        app: openbuzz
+    spec:
+      volumes:
+      - name: cloudsql-postgres-instance-credentials
+        secret:
+          secretName: cloudsql-postgres-instance-credentials
+      - name: ssl-certs
+        hostPath:
+          path: /etc/ssl/certs
+      - name: cloudsql
+        emptyDir: {}
+      containers:
+      - name: cloudsql-proxy
+        resources:
+          limits:
+            cpu: 100m
+            memory: 100Mi
+        image: gcr.io/cloudsql-docker/gce-proxy:1.09
+        command: ["/cloud_sql_proxy", "--dir=/cloudsql",
+                  "-instances={{POSTGRES_CONNECTION_STRING}}",
+                  "-credential_file=/secrets/cloudsql/credentials.json"]
+        volumeMounts:
+          - name: cloudsql-postgres-instance-credentials
+            mountPath: /secrets/cloudsql
+            readOnly: true
+          - name: ssl-certs
+            mountPath: /etc/ssl/certs
+          - name: cloudsql
+            mountPath: /cloudsql
+      - name: openbuzz
+        resources:
+          limits:
+            cpu: 400m
+            memory: 1000Mi
+        image: gcr.io/agn-openbuzz/openbuzz
+        - name: proxy
+          containerPort: 8080
+          protocol: TCP
+        env:
+          - name: OPENBUZZ_PORT
+            value: "80"
+          - name: OPENBUZZ_PG_PORT
+            value: "5432"
+          - name: OPENBUZZ_PG_HOST
+            value: "127.0.0.1"
+          - name: OPENBUZZ_PG_DB_NAME
+            value: "openbuzz"
+          - name: OPENBUZZ_PG_USER
+            valueFrom:
+              secretKeyRef:
+                name: cloudsql-postgres-db-credentials
+                key: username
+          - name: OPENBUZZ_PG_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: cloudsql-postgres-db-credentials
+                key: password

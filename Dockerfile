@@ -1,3 +1,4 @@
-FROM scratch
-ADD main /
-CMD ["/main"]
+FROM alpine
+ADD openbuzz /
+
+ENTRYPOINT /openbuzz
